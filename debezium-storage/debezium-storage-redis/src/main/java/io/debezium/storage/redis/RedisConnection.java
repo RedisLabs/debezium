@@ -7,6 +7,8 @@ package io.debezium.storage.redis;
 
 import java.util.regex.Pattern;
 
+import javax.net.ssl.SSLParameters;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +41,7 @@ public class RedisConnection {
     private int connectionTimeout;
     private int socketTimeout;
     private boolean sslEnabled;
+    private boolean hostnameVerificationEnabled;
 
     /**
      *
@@ -49,7 +52,8 @@ public class RedisConnection {
      * @param socketTimeout
      * @param sslEnabled
      */
-    public RedisConnection(String address, int dbIndex, String user, String password, int connectionTimeout, int socketTimeout, boolean sslEnabled) {
+    public RedisConnection(String address, int dbIndex, String user, String password, int connectionTimeout, int socketTimeout, boolean sslEnabled,
+                           boolean hostnameVerificationEnabled) {
         validateHostPort(address);
 
         this.address = address;
@@ -59,6 +63,7 @@ public class RedisConnection {
         this.connectionTimeout = connectionTimeout;
         this.socketTimeout = socketTimeout;
         this.sslEnabled = sslEnabled;
+        this.hostnameVerificationEnabled = hostnameVerificationEnabled;
     }
 
     /**
@@ -92,6 +97,12 @@ public class RedisConnection {
 
             if (!Strings.isNullOrEmpty(this.password)) {
                 configBuilder = configBuilder.password(this.password);
+            }
+
+            if (hostnameVerificationEnabled) {
+                var sslParameters = new SSLParameters();
+                sslParameters.setEndpointIdentificationAlgorithm("HTTPS");
+                configBuilder.sslParameters(sslParameters);
             }
 
             client = new Jedis(address, configBuilder.build());

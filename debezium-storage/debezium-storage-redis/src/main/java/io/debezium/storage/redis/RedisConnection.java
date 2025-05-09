@@ -100,6 +100,7 @@ public class RedisConnection {
             }
 
             if (hostnameVerificationEnabled) {
+                // Enforce strict hostname verification to prevent man-in-the-middle attacks.
                 var sslParameters = new SSLParameters();
                 sslParameters.setEndpointIdentificationAlgorithm("HTTPS");
                 configBuilder.sslParameters(sslParameters);

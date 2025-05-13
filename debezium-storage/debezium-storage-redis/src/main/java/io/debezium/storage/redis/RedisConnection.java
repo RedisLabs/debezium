@@ -5,6 +5,7 @@
  */
 package io.debezium.storage.redis;
 
+import java.io.File;
 import java.util.regex.Pattern;
 
 import javax.net.ssl.SSLParameters;
@@ -19,6 +20,8 @@ import redis.clients.jedis.DefaultJedisClientConfig;
 import redis.clients.jedis.DefaultJedisClientConfig.Builder;
 import redis.clients.jedis.HostAndPort;
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.SslOptions;
+import redis.clients.jedis.SslVerifyMode;
 import redis.clients.jedis.exceptions.JedisConnectionException;
 import redis.clients.jedis.exceptions.JedisDataException;
 
@@ -34,36 +37,38 @@ public class RedisConnection {
     public static final String DEBEZIUM_SCHEMA_HISTORY = "debezium:schema_history";
     private static final String HOST_PORT_ERROR = "Invalid host:port format in '<...>.redis.address' property.";
 
-    private String address;
-    private int dbIndex;
-    private String user;
-    private String password;
-    private int connectionTimeout;
-    private int socketTimeout;
-    private boolean sslEnabled;
-    private boolean hostnameVerificationEnabled;
+    private final String address;
+    private final int dbIndex;
+    private final String user;
+    private final String password;
+    private final int connectionTimeout;
+    private final int socketTimeout;
+    private final boolean sslEnabled;
+    private final boolean hostnameVerificationEnabled;
+    private final String truststorePath;
+    private final String truststorePassword;
+    private final String truststoreType;
+    private final String keystorePath;
+    private final String keystorePassword;
+    private final String keystoreType;
 
-    /**
-     *
-     * @param address
-     * @param user
-     * @param password
-     * @param connectionTimeout
-     * @param socketTimeout
-     * @param sslEnabled
-     */
-    public RedisConnection(String address, int dbIndex, String user, String password, int connectionTimeout, int socketTimeout, boolean sslEnabled,
-                           boolean hostnameVerificationEnabled) {
-        validateHostPort(address);
+    public RedisConnection(RedisCommonConfig config) {
+        validateHostPort(config.getAddress());
 
-        this.address = address;
-        this.dbIndex = dbIndex;
-        this.user = user;
-        this.password = password;
-        this.connectionTimeout = connectionTimeout;
-        this.socketTimeout = socketTimeout;
-        this.sslEnabled = sslEnabled;
-        this.hostnameVerificationEnabled = hostnameVerificationEnabled;
+        this.address = config.getAddress();
+        this.dbIndex = config.getDbIndex();
+        this.user = config.getUser();
+        this.password = config.getPassword();
+        this.connectionTimeout = config.getConnectionTimeout();
+        this.socketTimeout = config.getSocketTimeout();
+        this.sslEnabled = config.isSslEnabled();
+        this.hostnameVerificationEnabled = config.isHostnameVerificationEnabled();
+        this.truststorePath = config.getTruststorePath();
+        this.truststorePassword = config.getTruststorePassword();
+        this.truststoreType = config.getTruststoreType();
+        this.keystorePath = config.getKeystorePath();
+        this.keystorePassword = config.getKeystorePassword();
+        this.keystoreType = config.getKeystoreType();
     }
 
     /**
@@ -91,19 +96,38 @@ public class RedisConnection {
                     .socketTimeoutMillis(this.socketTimeout)
                     .ssl(this.sslEnabled);
 
+            boolean configureSslOptions = this.sslEnabled && (!Strings.isNullOrEmpty(this.truststorePath) ||
+                    !Strings.isNullOrEmpty(this.keystorePath));
+
+            // The SslOptions in Jedis override the default SSL context if explicitly configured.
+            // - When a custom truststore or keystore is provided for the Jedis client, hostname verification
+            //   must also be configured explicitly through the SslOptions.
+            // - If no custom truststore or keystore is provided, hostname verification will rely on the
+            //   SSLParameters, which use the truststore or keystore specified via system properties.
+            if (configureSslOptions) {
+                var tsPasswordRaw = !Strings.isNullOrEmpty(truststorePassword) ? truststorePassword.toCharArray() : null;
+                var ksPasswordRaw = !Strings.isNullOrEmpty(keystorePassword) ? keystorePassword.toCharArray() : null;
+                var sslOptions = SslOptions.builder()
+                        .truststore(new File(truststorePath), tsPasswordRaw)
+                        .trustStoreType(truststoreType)
+                        .keystore(new File(keystorePath), ksPasswordRaw)
+                        .keyStoreType(keystoreType)
+                        .sslVerifyMode(hostnameVerificationEnabled ? SslVerifyMode.FULL : SslVerifyMode.CA)
+                        .build();
+                configBuilder.sslOptions(sslOptions);
+            } else if (hostnameVerificationEnabled) {
+                // Enforce strict hostname verification to prevent man-in-the-middle attacks.
+                var sslParameters = new SSLParameters();
+                sslParameters.setEndpointIdentificationAlgorithm("HTTPS");
+                configBuilder.sslParameters(sslParameters);
+            }
+
             if (!Strings.isNullOrEmpty(this.user)) {
                 configBuilder = configBuilder.user(this.user);
             }
 
             if (!Strings.isNullOrEmpty(this.password)) {
                 configBuilder = configBuilder.password(this.password);
-            }
-
-            if (hostnameVerificationEnabled) {
-                // Enforce strict hostname verification to prevent man-in-the-middle attacks.
-                var sslParameters = new SSLParameters();
-                sslParameters.setEndpointIdentificationAlgorithm("HTTPS");
-                configBuilder.sslParameters(sslParameters);
             }
 
             client = new Jedis(address, configBuilder.build());

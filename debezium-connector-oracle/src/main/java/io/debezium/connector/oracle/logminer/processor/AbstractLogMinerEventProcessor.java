@@ -312,7 +312,9 @@ public abstract class AbstractLogMinerEventProcessor<T extends Transaction> impl
 
             Instant queryStart = Instant.now();
             try (ResultSet resultSet = statement.executeQuery()) {
-                metrics.setLastDurationOfFetchQuery(Duration.between(queryStart, Instant.now()));
+                var queryDuration = Duration.between(queryStart, Instant.now());
+                LOGGER.debug("Executed LogMiner query to fetch results in {} seconds", queryDuration.getSeconds());
+                metrics.setLastDurationOfFetchQuery(queryDuration);
 
                 Instant startProcessTime = Instant.now();
                 processResults(this.partition, resultSet);

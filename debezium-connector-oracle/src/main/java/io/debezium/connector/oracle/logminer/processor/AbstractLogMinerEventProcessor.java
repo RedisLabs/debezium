@@ -311,8 +311,12 @@ public abstract class AbstractLogMinerEventProcessor<T extends Transaction> impl
             statement.setString(2, endScn.toString());
 
             Instant queryStart = Instant.now();
+            LOGGER.debug("Executing LogMiner query: \n{}\n with params {} and {}", getQueryString(), startScn.toString(), endScn.toString());
             try (ResultSet resultSet = statement.executeQuery()) {
-                metrics.setLastDurationOfFetchQuery(Duration.between(queryStart, Instant.now()));
+                var queryDuration = Duration.between(queryStart, Instant.now());
+
+                LOGGER.debug("Executed LogMiner query to fetch results in {} seconds", queryDuration.getSeconds());
+                metrics.setLastDurationOfFetchQuery(queryDuration);
 
                 Instant startProcessTime = Instant.now();
                 processResults(this.partition, resultSet);
@@ -466,7 +470,12 @@ public abstract class AbstractLogMinerEventProcessor<T extends Transaction> impl
     protected void processResults(OraclePartition partition, ResultSet resultSet) throws SQLException, InterruptedException {
         while (context.isRunning() && hasNextWithMetricsUpdate(resultSet)) {
             counters.rows++;
-            processRow(partition, LogMinerEventRow.fromResultSet(resultSet, getConfig().getCatalogName(), isTrxIdRawValue()));
+
+            var row = LogMinerEventRow.fromResultSet(resultSet, getConfig().getCatalogName(), isTrxIdRawValue());
+            Instant queryStart = Instant.now();
+            processRow(partition, row);
+            LOGGER.debug("Processing time for row with SCN {}, from table '{}' for {}ms", row.getScn(), row.getTableName(),
+                    Duration.between(queryStart, Instant.now()).toMillis());
         }
     }
 
